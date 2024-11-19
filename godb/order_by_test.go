@@ -55,6 +55,8 @@ func TestOrderBy(t *testing.T) {
 	}
 
 	iter, _ := oby.Iterator(tid)
+	//fmt.Println("ff")
+
 	if iter == nil {
 		t.Fatalf("iter was nil")
 	}

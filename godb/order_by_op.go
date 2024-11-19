@@ -2,13 +2,13 @@ package godb
 
 import (
 	"fmt"
-	"io"
 	"sort"
 )
 
 type OrderBy struct {
-	orderBy []Expr // OrderBy should include these two fields (used by parser)
-	child   Operator
+	orderBy   []Expr // OrderBy should include these two fields (used by parser)
+	child     Operator
+	ascending []bool
 	// TODO: You may want to add additional fields here
 }
 
@@ -23,8 +23,9 @@ func NewOrderBy(orderByFields []Expr, child Operator, ascending []bool) (*OrderB
 	}
 
 	return &OrderBy{
-		orderBy: orderByFields,
-		child:   child,
+		orderBy:   orderByFields,
+		child:     child,
+		ascending: ascending,
 		// Add additional fields if needed
 	}, nil
 }
@@ -60,42 +61,46 @@ func (o *OrderBy) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	for {
 		tuple, err := childIter()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
 			return nil, err
+		}
+		if tuple == nil && err == nil {
+			break
 		}
 		tuples = append(tuples, tuple)
 	}
 
 	// Sort tuples using the sort package
 	sort.SliceStable(tuples, func(i, j int) bool {
-		for idx, expr := range o.orderBy {
-			// Evaluate the field for comparison
+		for ind := 0; ind < len(o.orderBy); ind++ {
+			expr := o.orderBy[ind]
 			val1, err1 := expr.EvalExpr(tuples[i])
 			val2, err2 := expr.EvalExpr(tuples[j])
 			if err1 != nil || err2 != nil {
-				// Handle evaluation errors
-				panic(fmt.Sprintf("Error evaluating orderBy field: %v, %v", err1, err2))
+				panic(fmt.Sprintf("Error evaluating expression: %v, %v", err1, err2))
 			}
-
-			// Compare values
-			ascending := o.ascending[idx]
-			if val1 != val2 {
-				if ascending {
-					return val1 < val2
+			switch expr.GetExprType().Ftype {
+			case IntType:
+				if val1.(IntField).Value != val2.(IntField).Value {
+					return (o.ascending[ind] && val1.(IntField).Value < val2.(IntField).Value) ||
+						(!o.ascending[ind] && val1.(IntField).Value > val2.(IntField).Value)
 				}
-				return val1 > val2
+			case StringType:
+				if val1.(StringField).Value != val2.(StringField).Value {
+					return (o.ascending[ind] && val1.(StringField).Value < val2.(StringField).Value) ||
+						(!o.ascending[ind] && val1.(StringField).Value > val2.(StringField).Value)
+				}
+			default:
+				panic(fmt.Sprintf("Unsupported field type: %v", expr.GetExprType().Ftype))
 			}
 		}
-		return false // Tie-breaker, consider tuples equal
+		return false
 	})
 
 	// Iterator function for sorted tuples
 	index := 0
 	return func() (*Tuple, error) {
 		if index >= len(tuples) {
-			return nil, io.EOF
+			return nil, nil
 		}
 		tuple := tuples[index]
 		index++

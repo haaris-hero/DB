@@ -2,7 +2,6 @@ package godb
 
 import (
 	"fmt"
-	"io"
 )
 
 type Project struct {
@@ -69,10 +68,10 @@ func (p *Project) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 		for {
 			tuple, err := childIter()
 			if err != nil {
-				if err == io.EOF {
-					return nil, io.EOF
-				}
 				return nil, err
+			}
+			if tuple == nil && err == nil {
+				return nil, nil
 			}
 
 			// Project the fields
@@ -88,6 +87,7 @@ func (p *Project) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 			// Create a new tuple with projected fields
 			projectedTuple := &Tuple{
 				Fields: projectedFields,
+				Desc:   *p.Descriptor(),
 			}
 
 			// Handle distinct logic (if enabled)
